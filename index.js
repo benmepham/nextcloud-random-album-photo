@@ -1,10 +1,6 @@
 const axios = require("axios");
 require("dotenv").config();
-// import { XMLParser } from "fast-xml-parser";
 const XMLParser = require("fast-xml-parser").XMLParser;
-const createHash = require("crypto").createHash;
-
-// const { serverRuntimeConfig } = getConfig();
 
 const express = require("express");
 const app = express();
@@ -83,22 +79,57 @@ app.get("/", async (req, res) => {
                 const contentType = props["d:getcontenttype"];
                 return !!contentType?.startsWith("image/");
             });
-            const urls = images.map((imgData) => {
-                const imgName = imgData["d:href"].split("/").pop();
-                return {
-                    img: `/api/image/${imgName}`,
-                    exif: `/api/exif/${imgName}`,
-                };
-            });
-            const hashUrls = createHash("md5")
-                .update(urls.join(","))
-                .digest()
-                .toString("hex");
-            res.setHeader("ETag", hashUrls);
-            res.status(200).json(urls);
+            const imgs = images.map((imgData) =>
+                imgData["d:href"].split("/").pop()
+            );
+            return imgs;
         })
         .catch((ex) => {
             console.error(`Failed to list images from dav`, ex);
+            res.status(500).json({ error: "Failed to make request" });
+        });
+
+    // filter out the images that are not jpg
+    const jpgImages = album.filter(
+        (img) =>
+            img.toLowerCase().endsWith(".jpg") ||
+            img.toLowerCase().endsWith(".jpeg")
+    );
+
+    if (jpgImages.length === 0) {
+        res.status(404).json({ error: "No jpg images found" });
+        return;
+    }
+
+    // get a random image
+    const randomPhoto = jpgImages[Math.floor(Math.random() * jpgImages.length)];
+
+    return nextcloudClient
+        .request({
+            url: `/${randomPhoto}`,
+            method: "GET",
+            responseEncoding: "binary",
+            responseType: "stream",
+        })
+        .then((response) => {
+            const contentType = response.headers["content-type"];
+            console.log(contentType);
+            if (typeof contentType !== "string") {
+                throw Error(
+                    `Server provided an invalid Content-Type of '${contentType}'`
+                );
+            }
+            if (!contentType.startsWith("image/jpeg")) {
+                throw Error(
+                    `Server provided an invalid Content-Type of '${contentType}'`
+                );
+            }
+            res.status(200);
+            res.setHeader("Content-Type", contentType);
+            response.data.pipe(res);
+        })
+        .catch((ex) => {
+            console.error(`Failed to get image from dav`, ex);
             res.status(500).json({ error: "Failed to make request" });
         });
 });
