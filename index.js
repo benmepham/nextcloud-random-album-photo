@@ -1,13 +1,14 @@
 const axios = require("axios");
 require("dotenv").config();
 const XMLParser = require("fast-xml-parser").XMLParser;
+const sharp = require("sharp");
 
 const express = require("express");
 const app = express();
 const port = 3000;
 
 app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`);
+    console.log(`Listening on port ${port}`);
 });
 
 app.get("/", async (req, res) => {
@@ -49,7 +50,6 @@ app.get("/", async (req, res) => {
                 });
                 return;
             }
-            console.log(response.data);
             const data = new XMLParser({
                 isArray: (tagName) =>
                     ["d:response", "d:propstat"].includes(tagName),
@@ -79,17 +79,16 @@ app.get("/", async (req, res) => {
                 const contentType = props["d:getcontenttype"];
                 return !!contentType?.startsWith("image/");
             });
-            const imgs = images.map((imgData) =>
-                imgData["d:href"].split("/").pop()
-            );
-            return imgs;
+            // we only want the image names
+            return images.map((imgData) => imgData["d:href"].split("/").pop());
         })
         .catch((ex) => {
             console.error(`Failed to list images from dav`, ex);
             res.status(500).json({ error: "Failed to make request" });
         });
 
-    // filter out the images that are not jpg
+    // filter out the images that are not jpg (eg. raws)
+    // todo: what about heifs?
     const jpgImages = album.filter(
         (img) =>
             img.toLowerCase().endsWith(".jpg") ||
@@ -111,9 +110,8 @@ app.get("/", async (req, res) => {
             responseEncoding: "binary",
             responseType: "stream",
         })
-        .then((response) => {
+        .then(async (response) => {
             const contentType = response.headers["content-type"];
-            console.log(contentType);
             if (typeof contentType !== "string") {
                 throw Error(
                     `Server provided an invalid Content-Type of '${contentType}'`
@@ -124,9 +122,23 @@ app.get("/", async (req, res) => {
                     `Server provided an invalid Content-Type of '${contentType}'`
                 );
             }
-            res.status(200);
-            res.setHeader("Content-Type", contentType);
-            response.data.pipe(res);
+            const chunks = [];
+            response.data.on("data", (chunk) => chunks.push(chunk));
+            response.data.on("end", async () => {
+                const buffer = Buffer.concat(chunks);
+                const resizedImg = await sharp(buffer)
+                    .rotate()
+                    .resize(
+                        parseInt(process.env.WIDTH),
+                        parseInt(process.env.HEIGHT)
+                    )
+                    .jpeg()
+                    .toBuffer();
+
+                res.status(200);
+                res.setHeader("Content-Type", contentType);
+                res.send(resizedImg);
+            });
         })
         .catch((ex) => {
             console.error(`Failed to get image from dav`, ex);
