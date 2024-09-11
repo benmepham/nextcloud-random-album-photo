@@ -12,4 +12,19 @@ Would not have been possible without [dav-slideshow](https://github.com/Half-Sho
 
 ## Docker
 
-todo
+Sample docker-compose
+
+```
+    nextcloud-random-album-photo:
+        container_name: nextcloud-random-album-photo
+        restart: unless-stopped
+        security_opt:
+            - no-new-privileges:true
+        image: ghcr.io/benmepham/nextcloud-random-album-photo:latest
+        env_file:
+            - .env
+        depends_on:
+            - nextcloud
+        ports:
+            - 3000:3000
+```
